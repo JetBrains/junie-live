@@ -1,0 +1,260 @@
+name: "Yana Sandbox"
+description: >-
+  Install the yana CLI and run the full Yana sandbox (proxies + agent
+  container) for a bounded, self-restarting window inside a GitHub Actions job.
+author: "JetBrains"
+
+inputs:
+  agent:
+    description: "Agent name to run (selects .yana/<agent>/agent.yaml in the caller repo)."
+    required: true
+  yana-version:
+    description: "yana CLI release tag to install, or 'latest'."
+    required: false
+    default: "latest"
+  working-directory:
+    description: "Directory containing the caller's yana.yaml (and .yana/<agent>/)."
+    required: false
+    default: "."
+  repo-url:
+    description: >-
+      Git repository URL the sandbox should operate on. Defaults to the calling
+      repository (derived from the GitHub context), so the caller's yana.yaml does
+      not need to restate it (reference it as ${GIT_REPO_URL}).
+    required: false
+    default: ${{ github.server_url }}/${{ github.repository }}.git
+  ref:
+    description: >-
+      Git branch/ref the sandbox should check out. Defaults to the workflow's ref
+      (github.ref_name); reference it in yana.yaml as ${GIT_BRANCH}.
+    required: false
+    default: ${{ github.ref_name }}
+  run-duration-seconds:
+    description: "Total time budget for this job; the sandbox is restarted on early exit until it elapses."
+    required: false
+    default: "3600"
+  github-token:
+    description: "Token used to install the (private) yana CLI release via install.sh. Defaults to the job token."
+    required: false
+    default: ${{ github.token }}
+  # --- Secrets (only non-empty ones are written to the generated .env) ---
+  openrouter-api-key:
+    description: "OpenRouter API key (OPENROUTER_API_KEY)."
+    required: false
+    default: ""
+  openai-api-key:
+    description: "OpenAI API key (OPENAI_API_KEY)."
+    required: false
+    default: ""
+  anthropic-api-key:
+    description: "Anthropic API key (ANTHROPIC_API_KEY)."
+    required: false
+    default: ""
+  github-app-id:
+    description: "GitHub App ID (GITHUB_APP_ID)."
+    required: false
+    default: ""
+  github-app-private-key:
+    description: "GitHub App private key, base64-encoded PEM (GITHUB_APP_PRIVATE_KEY)."
+    required: false
+    default: ""
+  github-app-installation-id:
+    description: "GitHub App installation ID (GITHUB_APP_INSTALLATION_ID)."
+    required: false
+    default: ""
+  git-token:
+    description: "Personal access token alternative to the GitHub App (GIT_TOKEN)."
+    required: false
+    default: ""
+  yana-token-secret:
+    description: "Shared agent-to-proxy auth token (YANA_TOKEN_SECRET)."
+    required: false
+    default: ""
+  slack-bot-token:
+    description: "Slack bot token (BOT_USER_ACCESS_TOKEN)."
+    required: false
+    default: ""
+  github-mcp-token:
+    description: "GitHub MCP upstream token (GITHUB_MCP_TOKEN)."
+    required: false
+    default: ""
+  extra-secrets:
+    description: >-
+      Newline-separated KEY=VALUE pairs appended verbatim to the generated .env.
+      Use for arbitrary per-service / MCP / channel secrets the action does not
+      name explicitly (e.g. NOTION_TOKEN=..., JIRA_TOKEN=...). Reference them in
+      yana.yaml / agent.yaml / mcp.json as ${KEY}. Blank lines and #-comments are
+      ignored; each non-empty line must match ^[A-Za-z_][A-Za-z0-9_]*=. Values
+      are masked in logs. Keep individual secrets in GitHub Secrets and only wire
+      them here, e.g. a NOTION_TOKEN line referencing secrets.NOTION_TOKEN.
+    required: false
+    default: ""
+  ghcr-token:
+    description: "Token with read:packages to pull private ghcr.io/jetbrains/yana/* images."
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install yana CLI
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        YANA_VERSION: ${{ inputs.yana-version }}
+      run: |
+        set -euo pipefail
+        REPO="JetBrains/junie-live"
+        INSTALL_DIR="$HOME/.yana/bin"
+        if [ "${YANA_VERSION}" = "latest" ] || [ -z "${YANA_VERSION}" ]; then
+          echo "Installing latest yana CLI via install.sh"
+          curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" \
+            "https://raw.githubusercontent.com/${REPO}/main/install.sh" | bash
+        else
+          echo "Installing pinned yana CLI ${YANA_VERSION}"
+          os="linux"
+          case "$(uname -m)" in
+            x86_64|amd64) arch="amd64" ;;
+            arm64|aarch64) arch="arm64" ;;
+            *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          asset="yana-${os}-${arch}"
+          api="https://api.github.com/repos/${REPO}/releases/tags/${YANA_VERSION}"
+          json=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" "$api")
+          asset_url=$(echo "$json" | grep -B5 "\"name\": \"${asset}\"" | grep '"url"' | tail -1 | sed 's/.*"url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+          [ -n "$asset_url" ] || { echo "Asset ${asset} not found in ${YANA_VERSION}" >&2; exit 1; }
+          mkdir -p "$INSTALL_DIR"
+          curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Accept: application/octet-stream" -o "${INSTALL_DIR}/yana" "$asset_url"
+          chmod +x "${INSTALL_DIR}/yana"
+        fi
+        echo "${INSTALL_DIR}" >> "$GITHUB_PATH"
+
+    - name: Log in to GHCR
+      shell: bash
+      env:
+        GHCR_TOKEN: ${{ inputs.ghcr-token }}
+        GHCR_ACTOR: ${{ github.actor }}
+      run: |
+        set -euo pipefail
+        if [ -z "${GHCR_TOKEN}" ]; then
+          echo "No ghcr-token provided; skipping GHCR login (assuming images are public or cached)."
+          exit 0
+        fi
+        echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_ACTOR}" --password-stdin
+
+    - name: Generate .env
+      id: gen-env
+      shell: bash
+      env:
+        GIT_REPO_URL: ${{ inputs.repo-url }}
+        GIT_BRANCH: ${{ inputs.ref }}
+        YANA_TOKEN_SECRET: ${{ inputs.yana-token-secret }}
+        OPENROUTER_API_KEY: ${{ inputs.openrouter-api-key }}
+        OPENAI_API_KEY: ${{ inputs.openai-api-key }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        GITHUB_APP_ID: ${{ inputs.github-app-id }}
+        GITHUB_APP_PRIVATE_KEY: ${{ inputs.github-app-private-key }}
+        GITHUB_APP_INSTALLATION_ID: ${{ inputs.github-app-installation-id }}
+        GIT_TOKEN: ${{ inputs.git-token }}
+        BOT_USER_ACCESS_TOKEN: ${{ inputs.slack-bot-token }}
+        GITHUB_MCP_TOKEN: ${{ inputs.github-mcp-token }}
+        EXTRA_SECRETS: ${{ inputs.extra-secrets }}
+      run: |
+        set -euo pipefail
+        env_file="$(mktemp "${RUNNER_TEMP:-/tmp}/yana-env.XXXXXX")"
+        chmod 600 "$env_file"
+        write_kv() {
+          local key="$1" val="$2"
+          if [ -n "$val" ]; then
+            printf '%s=%s\n' "$key" "$val" >> "$env_file"
+          fi
+        }
+        # Repo identity derived from the GitHub context (Option 1): the caller's
+        # yana.yaml references these as ${GIT_REPO_URL}/${GIT_BRANCH} instead of
+        # hardcoding the repo it was just checked out from.
+        write_kv GIT_REPO_URL "${GIT_REPO_URL}"
+        write_kv GIT_BRANCH "${GIT_BRANCH}"
+        write_kv YANA_TOKEN_SECRET "${YANA_TOKEN_SECRET}"
+        write_kv OPENROUTER_API_KEY "${OPENROUTER_API_KEY}"
+        write_kv OPENAI_API_KEY "${OPENAI_API_KEY}"
+        write_kv ANTHROPIC_API_KEY "${ANTHROPIC_API_KEY}"
+        write_kv GITHUB_APP_ID "${GITHUB_APP_ID}"
+        write_kv GITHUB_APP_PRIVATE_KEY "${GITHUB_APP_PRIVATE_KEY}"
+        write_kv GITHUB_APP_INSTALLATION_ID "${GITHUB_APP_INSTALLATION_ID}"
+        write_kv GIT_TOKEN "${GIT_TOKEN}"
+        write_kv BOT_USER_ACCESS_TOKEN "${BOT_USER_ACCESS_TOKEN}"
+        write_kv GITHUB_MCP_TOKEN "${GITHUB_MCP_TOKEN}"
+        # Open pass-through: arbitrary per-service/MCP/channel secrets the action
+        # does not name. Each KEY=VALUE line is validated and appended to the same
+        # proxy-facing .env so the sandbox stays secretless (mirrors filling .env
+        # locally). Skip blanks/#-comments; mask values defensively.
+        extra=0
+        while IFS= read -r line || [ -n "$line" ]; do
+          # Trim leading/trailing whitespace.
+          line="${line#"${line%%[![:space:]]*}"}"
+          line="${line%"${line##*[![:space:]]}"}"
+          [ -z "$line" ] && continue
+          case "$line" in \#*) continue ;; esac
+          if ! printf '%s' "$line" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*='; then
+            echo "Ignoring malformed extra-secrets line (expected KEY=VALUE): ${line%%=*}..." >&2
+            continue
+          fi
+          key="${line%%=*}"
+          val="${line#*=}"
+          [ -z "$val" ] && continue
+          echo "::add-mask::${val}"
+          printf '%s=%s\n' "$key" "$val" >> "$env_file"
+          extra=$(( extra + 1 ))
+        done <<< "${EXTRA_SECRETS:-}"
+        echo "env-file=${env_file}" >> "$GITHUB_OUTPUT"
+        echo "Wrote $(wc -l < "$env_file" | tr -d ' ') entr(ies) to generated .env (repo=${GIT_REPO_URL}, branch=${GIT_BRANCH}; ${extra} from extra-secrets)"
+
+    - name: Resolve yana log directory
+      id: logs
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Fixed internal location; the CLI's --log-file is the only configurable
+        # log path. The action just collects the logs here and exposes them to
+        # the user as a downloadable job artifact.
+        dir="${RUNNER_TEMP:-/tmp}/yana-logs"
+        mkdir -p "$dir"
+        echo "dir=${dir}" >> "$GITHUB_OUTPUT"
+        # The CLI's own default log directory (used by releases that predate the
+        # --log-file flag). Resolve it here so the upload step can collect it with
+        # an absolute path (actions/upload-artifact does not expand '~').
+        home_dir="${HOME}/.yana/logs"
+        mkdir -p "$home_dir"
+        echo "home-dir=${home_dir}" >> "$GITHUB_OUTPUT"
+        echo "yana logs will be written to ${dir} (and ${home_dir}); uploaded as the 'yana-logs' job artifact"
+
+    - name: Run supervised sandbox
+      shell: bash
+      env:
+        YANA_AGENT: ${{ inputs.agent }}
+        YANA_ENV_FILE: ${{ steps.gen-env.outputs.env-file }}
+        YANA_RUN_DURATION_SECONDS: ${{ inputs.run-duration-seconds }}
+        YANA_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        YANA_LOG_DIR: ${{ steps.logs.outputs.dir }}
+      run: |
+        set -euo pipefail
+        bash "${GITHUB_ACTION_PATH}/run-sandbox.sh"
+
+    # Upload the yana logs as a job artifact so the user can download the full
+    # logs from the run page. `always()` ensures logs are captured even on failure.
+    - name: Upload yana logs
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: yana-logs
+        # Collect BOTH the per-run log files (written via the CLI's --log-file,
+        # honored by newer CLI releases) AND the CLI's own default log directory
+        # (~/.yana/logs), which older releases that predate --log-file write to.
+        # Including both guarantees the real docker compose / sandbox error is
+        # captured regardless of the installed CLI version.
+        path: |
+          ${{ steps.logs.outputs.dir }}
+          ${{ steps.logs.outputs.home-dir }}
+        if-no-files-found: warn
+        retention-days: 7

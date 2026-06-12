@@ -1,0 +1,66 @@
+# Ready-to-commit workflow for the `junie-agent` repository.
+#
+# Copy this file into `.github/workflows/yana-sandbox.yml` of `junie-agent`.
+# It runs the Yana sandbox continuously: a fresh 5-hour sandbox is launched
+# every 5 hours (and on manual dispatch), recovering from crashes within the run
+# via the action's internal supervisor loop.
+#
+# See examples/junie-agent/README.md for the full onboarding guide (required
+# secrets, the yana.yaml + .yana/<agent>/ config to commit, and GHCR access).
+name: Yana Sandbox
+
+on:
+  schedule:
+    # Every 5 hours; each run launches a fresh 5-hour sandbox.
+    - cron: "0 */5 * * *"
+  workflow_dispatch: {}
+
+# Prevent overlapping runs; let an in-flight run finish before the next.
+concurrency:
+  group: yana-sandbox
+  cancel-in-progress: false
+
+jobs:
+  run-sandbox:
+    runs-on: ubuntu-latest
+    # Keep within the per-run budget (plus install/teardown headroom).
+    # GitHub caps a job at 360 min (6h); 5h run + headroom stays under it.
+    timeout-minutes: 330
+    steps:
+      - name: Checkout (provides yana.yaml + .yana/<agent>/)
+        uses: actions/checkout@v4
+
+      # Mint a short-lived, repo-scoped installation token from the Yana App
+      # installed in this repo. The App PRIVATE KEY stays in the Actions secret
+      # store and is used only here on the runner; only the ~1h token (which
+      # auto-expires) is forwarded into the sandbox — never the org-wide key.
+      - name: Mint Yana App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.YANA_APP_ID }}
+          private-key: ${{ secrets.YANA_APP_PRIVATE_KEY }}
+          # Omit `repositories:` to scope the token to this repository only.
+
+      - name: Run Yana sandbox
+        uses: jetbrains/junie-live/.github/actions/yana-sandbox@main
+        with:
+          agent: junie-test
+          run-duration-seconds: "18000"
+          # Token to install the (private) yana CLI release.
+          github-token: ${{ secrets.YANA_INSTALL_TOKEN }}
+          # Secrets injected into the proxies only (never the agent container).
+          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          # Short-lived installation token instead of the App private key.
+          git-token: ${{ steps.app-token.outputs.token }}
+          yana-token-secret: ${{ secrets.YANA_TOKEN_SECRET }}
+          slack-bot-token: ${{ secrets.BOT_USER_ACCESS_TOKEN }}
+          ghcr-token: ${{ secrets.GHCR_TOKEN }}
+          # Open pass-through for any per-service / MCP / channel secret the
+          # action does not name explicitly: add a repo secret + one KEY=VALUE
+          # line here (referenced in mcp.json / agent.yaml as ${KEY}). No action
+          # change or release needed when Junie Live grows its service surface.
+          extra-secrets: |
+            GITHUB_MCP_TOKEN=${{ steps.app-token.outputs.token }}
+            # NOTION_TOKEN=${{ secrets.NOTION_TOKEN }}
+            # JIRA_TOKEN=${{ secrets.JIRA_TOKEN }}
