@@ -59,13 +59,45 @@ api_get() {
   fi
 }
 
+# Resolve the latest release tag WITHOUT the GitHub API.
+# The /releases/latest web URL 302-redirects to /releases/tag/<tag>; following
+# that redirect and reading the final URL avoids api.github.com entirely, so it
+# is not subject to the 60-req/hour unauthenticated rate limit (HTTP 403).
+latest_tag_via_redirect() {
+  local url="https://github.com/${REPO}/releases/latest"
+  local effective="" tag=""
+  if command -v curl >/dev/null 2>&1; then
+    local h; h=$(auth_header)
+    effective=$(curl -fsSLI -o /dev/null -w '%{url_effective}' ${h:+-H "$h"} "$url" 2>/dev/null) || return 1
+  elif command -v wget >/dev/null 2>&1; then
+    local h; h=$(auth_header)
+    effective=$(wget -S --max-redirect=10 -O /dev/null ${h:+--header="$h"} "$url" 2>&1 \
+      | grep -i '^[[:space:]]*Location:' | tail -1 | sed 's/.*Location:[[:space:]]*//' | tr -d '\r') || return 1
+  else
+    return 1
+  fi
+  # Final URL looks like https://github.com/<repo>/releases/tag/<tag>
+  case "$effective" in
+    */releases/tag/*) tag="${effective##*/releases/tag/}"; tag="${tag%%/*}" ;;
+    *) return 1 ;;
+  esac
+  [ -n "$tag" ] || return 1
+  echo "$tag"
+}
+
 # Fetch the tag name of the latest GitHub release
 latest_tag() {
-  local url="https://api.github.com/repos/${REPO}/releases/latest"
-  info "Fetching latest release from ${url}..."
-  local json tag
-  json=$(api_get "$url") || error "Could not fetch latest release. Check https://github.com/${REPO}/releases"
-  tag=$(echo "$json" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+  info "Fetching latest release for ${REPO}..."
+  local tag
+  # Prefer the API-free redirect (no rate limit). Fall back to the API
+  # (needed for private repos, where the web redirect requires a session).
+  tag=$(latest_tag_via_redirect) || tag=""
+  if [ -z "$tag" ]; then
+    local url="https://api.github.com/repos/${REPO}/releases/latest"
+    local json
+    json=$(api_get "$url") || error "Could not fetch latest release. Check https://github.com/${REPO}/releases"
+    tag=$(echo "$json" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+  fi
   [ -n "$tag" ] || error "Could not determine latest release tag. Check https://github.com/${REPO}/releases"
   info "Latest release: ${tag}"
   echo "$tag"
@@ -75,6 +107,14 @@ latest_tag() {
 # For private repos, assets must be downloaded via the API with Accept: application/octet-stream
 asset_download_url() {
   local tag="$1" asset_name="$2"
+  # Public repos: download directly from the release download URL — no
+  # api.github.com call, so this is not subject to the unauthenticated
+  # rate limit (HTTP 403). Only consult the API for private repos, where
+  # the asset must be fetched via its API url with Accept: octet-stream.
+  if [ -z "${GITHUB_TOKEN:-}" ]; then
+    echo "https://github.com/${REPO}/releases/download/${tag}/${asset_name}"
+    return 0
+  fi
   local url="https://api.github.com/repos/${REPO}/releases/tags/${tag}"
   info "Fetching release assets for ${tag}..."
   local json asset_url
@@ -119,12 +159,6 @@ main() {
   os=$(detect_os)
   arch=$(detect_arch)
   info "Detected platform: ${os}/${arch}"
-
-  if [ -n "${GITHUB_TOKEN:-}" ]; then
-    info "GITHUB_TOKEN is set — using authenticated requests"
-  else
-    info "GITHUB_TOKEN is not set — using unauthenticated requests (may fail for private repos)"
-  fi
 
   tag=$(latest_tag)
 

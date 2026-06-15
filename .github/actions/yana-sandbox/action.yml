@@ -70,8 +70,16 @@ inputs:
     description: "Shared agent-to-proxy auth token (YANA_TOKEN_SECRET)."
     required: false
     default: ""
+  yana-live-backend-token:
+    description: "Junie Live backend API token (YANA_LIVE_BACKEND_TOKEN)."
+    required: false
+    default: ""
   slack-bot-token:
     description: "Slack bot token (BOT_USER_ACCESS_TOKEN)."
+    required: false
+    default: ""
+  slack-app-token:
+    description: "Slack app-level token with connections:write (SLACK_APP_TOKEN)."
     required: false
     default: ""
   github-mcp-token:
@@ -150,6 +158,7 @@ runs:
         GIT_REPO_URL: ${{ inputs.repo-url }}
         GIT_BRANCH: ${{ inputs.ref }}
         YANA_TOKEN_SECRET: ${{ inputs.yana-token-secret }}
+        YANA_LIVE_BACKEND_TOKEN: ${{ inputs.yana-live-backend-token }}
         OPENROUTER_API_KEY: ${{ inputs.openrouter-api-key }}
         OPENAI_API_KEY: ${{ inputs.openai-api-key }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
@@ -158,6 +167,7 @@ runs:
         GITHUB_APP_INSTALLATION_ID: ${{ inputs.github-app-installation-id }}
         GIT_TOKEN: ${{ inputs.git-token }}
         BOT_USER_ACCESS_TOKEN: ${{ inputs.slack-bot-token }}
+        SLACK_APP_TOKEN: ${{ inputs.slack-app-token }}
         GITHUB_MCP_TOKEN: ${{ inputs.github-mcp-token }}
         EXTRA_SECRETS: ${{ inputs.extra-secrets }}
       run: |
@@ -176,6 +186,7 @@ runs:
         write_kv GIT_REPO_URL "${GIT_REPO_URL}"
         write_kv GIT_BRANCH "${GIT_BRANCH}"
         write_kv YANA_TOKEN_SECRET "${YANA_TOKEN_SECRET}"
+        write_kv YANA_LIVE_BACKEND_TOKEN "${YANA_LIVE_BACKEND_TOKEN}"
         write_kv OPENROUTER_API_KEY "${OPENROUTER_API_KEY}"
         write_kv OPENAI_API_KEY "${OPENAI_API_KEY}"
         write_kv ANTHROPIC_API_KEY "${ANTHROPIC_API_KEY}"
@@ -184,6 +195,7 @@ runs:
         write_kv GITHUB_APP_INSTALLATION_ID "${GITHUB_APP_INSTALLATION_ID}"
         write_kv GIT_TOKEN "${GIT_TOKEN}"
         write_kv BOT_USER_ACCESS_TOKEN "${BOT_USER_ACCESS_TOKEN}"
+        write_kv SLACK_APP_TOKEN "${SLACK_APP_TOKEN}"
         write_kv GITHUB_MCP_TOKEN "${GITHUB_MCP_TOKEN}"
         # Open pass-through: arbitrary per-service/MCP/channel secrets the action
         # does not name. Each KEY=VALUE line is validated and appended to the same

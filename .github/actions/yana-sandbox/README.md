@@ -24,6 +24,7 @@ the sandbox for a bounded, self-restarting window.
     github-mcp-token: ${{ steps.app-token.outputs.token }}
     yana-token-secret: ${{ secrets.YANA_TOKEN_SECRET }}
     slack-bot-token: ${{ secrets.BOT_USER_ACCESS_TOKEN }}
+    slack-app-token: ${{ secrets.SLACK_APP_TOKEN }}
     ghcr-token: ${{ secrets.GHCR_TOKEN }}
 ```
 
@@ -83,7 +84,8 @@ surfaces it to the user.
 | `github-app-private-key` | no | `""` | `GITHUB_APP_PRIVATE_KEY`, base64 PEM (legacy fallback — forwards the org-wide key into the sandbox; prefer `git-token`). |
 | `github-app-installation-id` | no | `""` | `GITHUB_APP_INSTALLATION_ID` (legacy fallback; prefer `git-token`). |
 | `yana-token-secret` | no | `""` | `YANA_TOKEN_SECRET` (agent↔proxy auth). |
-| `slack-bot-token` | no | `""` | `BOT_USER_ACCESS_TOKEN`. |
+| `slack-bot-token` | no | `""` | `BOT_USER_ACCESS_TOKEN` (Slack `xoxb-` bot token). |
+| `slack-app-token` | no | `""` | `SLACK_APP_TOKEN` (Slack `xapp-` app-level token with `connections:write`). |
 | `github-mcp-token` | no | `""` | `GITHUB_MCP_TOKEN`. |
 | `extra-secrets` | no | `""` | Newline-separated `KEY=VALUE` pairs for arbitrary per-service/MCP/channel secrets the action does not name (see below). |
 | `ghcr-token` | no | `""` | Token with `read:packages` for private images. |

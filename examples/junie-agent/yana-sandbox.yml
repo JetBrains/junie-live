@@ -54,7 +54,10 @@ jobs:
           # Short-lived installation token instead of the App private key.
           git-token: ${{ steps.app-token.outputs.token }}
           yana-token-secret: ${{ secrets.YANA_TOKEN_SECRET }}
+          # Junie Live backend API token (consumed by yana.yaml as ${YANA_LIVE_BACKEND_TOKEN}).
+          yana-live-backend-token: ${{ secrets.YANA_LIVE_BACKEND_TOKEN }}
           slack-bot-token: ${{ secrets.BOT_USER_ACCESS_TOKEN }}
+          slack-app-token: ${{ secrets.SLACK_APP_TOKEN }}
           ghcr-token: ${{ secrets.GHCR_TOKEN }}
           # Open pass-through for any per-service / MCP / channel secret the
           # action does not name explicitly: add a repo secret + one KEY=VALUE
