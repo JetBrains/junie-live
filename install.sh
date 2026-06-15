@@ -132,22 +132,32 @@ asset_download_url() {
 download() {
   local url="$1" dest="$2"
   info "  GET ${url}"
+  # Download to a temporary sibling file and atomically move it into place.
+  # Overwriting an existing code-signed Mach-O *in place* (same inode) breaks
+  # macOS: the kernel still has the previous binary's code-signature pages
+  # cached for that vnode, so the new bytes fail validation
+  # ("load code signature error 2" / "rejecting invalid page") and the process
+  # is SIGKILL'd ("zsh: killed yana") even though the binary is perfectly valid.
+  # A fresh temp file + rename gives a new inode, so no stale signature is cached.
+  local tmp="${dest}.download.$$"
   if command -v curl >/dev/null 2>&1; then
     local h; h=$(auth_header)
     # API asset URLs require Accept header to get the binary instead of JSON metadata
     if echo "$url" | grep -q 'api.github.com.*assets'; then
-      curl -fsSL ${h:+-H "$h"} -H "Accept: application/octet-stream" -o "$dest" "$url"
+      curl -fsSL ${h:+-H "$h"} -H "Accept: application/octet-stream" -o "$tmp" "$url"
     else
-      curl -fsSL ${h:+-H "$h"} -o "$dest" "$url"
+      curl -fsSL ${h:+-H "$h"} -o "$tmp" "$url"
     fi
   elif command -v wget >/dev/null 2>&1; then
     local h; h=$(auth_header)
     if echo "$url" | grep -q 'api.github.com.*assets'; then
-      wget -qO "$dest" ${h:+--header="$h"} --header="Accept: application/octet-stream" "$url"
+      wget -qO "$tmp" ${h:+--header="$h"} --header="Accept: application/octet-stream" "$url"
     else
-      wget -qO "$dest" ${h:+--header="$h"} "$url"
+      wget -qO "$tmp" ${h:+--header="$h"} "$url"
     fi
   fi
+  chmod +x "$tmp" 2>/dev/null || true
+  mv -f "$tmp" "$dest"
   info "  Saved to ${dest} ($(wc -c < "$dest" | tr -d ' ') bytes)"
 }
 
