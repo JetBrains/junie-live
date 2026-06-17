@@ -251,7 +251,13 @@ runs:
         YANA_LOG_DIR: ${{ steps.logs.outputs.dir }}
       run: |
         set -euo pipefail
-        bash "${GITHUB_ACTION_PATH}/run-sandbox.sh"
+        # `exec` so run-sandbox.sh REPLACES this wrapper shell and becomes the step's
+        # top-level process — the ONLY process GitHub signals on cancel/timeout. Without
+        # exec, GitHub's SIGINT/SIGTERM would land on this wrapper bash (which does not
+        # forward signals to a child it is waiting on), so run-sandbox.sh + yana would be
+        # SIGKILLed with no chance to snapshot agent state. run-sandbox.sh installs a trap
+        # that forwards the signal down to yana for its clean-shutdown snapshot.
+        exec bash "${GITHUB_ACTION_PATH}/run-sandbox.sh"
 
     # Upload the yana logs as a job artifact so the user can download the full
     # logs from the run page. `always()` ensures logs are captured even on failure.
