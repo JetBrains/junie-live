@@ -55,7 +55,7 @@ inputs:
     required: false
     default: ""
   github-app-private-key:
-    description: "GitHub App private key, base64-encoded PEM (GITHUB_APP_PRIVATE_KEY)."
+    description: "GitHub App private key (GITHUB_APP_PRIVATE_KEY). Accepts either a base64-encoded PEM or a raw multi-line PEM — a raw PEM is normalized to single-line base64 before being written to the proxy .env."
     required: false
     default: ""
   github-app-installation-id:
@@ -191,6 +191,20 @@ runs:
         write_kv OPENAI_API_KEY "${OPENAI_API_KEY}"
         write_kv ANTHROPIC_API_KEY "${ANTHROPIC_API_KEY}"
         write_kv GITHUB_APP_ID "${GITHUB_APP_ID}"
+        # GITHUB_APP_PRIVATE_KEY may be supplied as a RAW, multi-line PEM. The
+        # generated file is a line-based .env (KEY=VALUE per line), so a value
+        # containing newlines would be split across many lines: the proxies'
+        # parser would read only the first line ("-----BEGIN ...") as the value,
+        # producing an invalid PEM that makes git-proxy/mcp-proxy log.Fatalf and
+        # exit 1 ("dependency failed to start: container yana-mcp-proxy exited
+        # (1)"). Normalize any raw PEM to single-line base64 before writing;
+        # git-proxy and mcp-proxy both accept base64-encoded PEM. An already
+        # base64-encoded key (no "-----BEGIN" marker) is passed through unchanged.
+        case "${GITHUB_APP_PRIVATE_KEY}" in
+          *-----BEGIN*)
+            GITHUB_APP_PRIVATE_KEY="$(printf '%s' "${GITHUB_APP_PRIVATE_KEY}" | base64 | tr -d '\n')"
+            ;;
+        esac
         write_kv GITHUB_APP_PRIVATE_KEY "${GITHUB_APP_PRIVATE_KEY}"
         write_kv GITHUB_APP_INSTALLATION_ID "${GITHUB_APP_INSTALLATION_ID}"
         write_kv GIT_TOKEN "${GIT_TOKEN}"
