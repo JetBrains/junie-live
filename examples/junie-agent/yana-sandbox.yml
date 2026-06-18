@@ -47,8 +47,8 @@ jobs:
         with:
           agent: junie-test
           run-duration-seconds: "18000"
-          # Token to install the (private) yana CLI release.
-          github-token: ${{ secrets.YANA_INSTALL_TOKEN }}
+          # The repository to operate on is defined exclusively in the committed
+          # yana.yaml / .yana/<agent>/agent.yaml — the action does not configure it.
           # Secrets injected into the proxies only (never the agent container).
           openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
           # Short-lived installation token instead of the App private key.

@@ -31,9 +31,8 @@ the sandbox for a bounded, self-restarting window.
 ## How it works
 
 1. **Install CLI** — installs the `yana` CLI (via the repo `install.sh`, or a
-   pinned release asset when `yana-version` is set). The install token defaults
-   to the job's `github.token`; override with `github-token` if the `JetBrains/junie-live`
-   release is in a different scope than your repo.
+   pinned release asset when `yana-version` is set), using the job's
+   `github.token` to fetch the release.
 2. **GHCR login** — logs in to `ghcr.io` with `ghcr-token` so the private
    `ghcr.io/jetbrains/yana/*` images can be pulled.
 3. **Generate `.env`** — writes only the non-empty secret inputs (plus any
@@ -72,10 +71,7 @@ surfaces it to the user.
 | `agent` | yes | — | Agent name; selects `.yana/<agent>/agent.yaml` in the caller repo. |
 | `yana-version` | no | `latest` | yana CLI release tag, or `latest`. |
 | `working-directory` | no | `.` | Directory containing the caller's `yana.yaml`. |
-| `repo-url` | no | calling repo | Repo URL the sandbox operates on; derived from the GitHub context. Exposed to `yana.yaml` as `${GIT_REPO_URL}`. |
-| `ref` | no | `github.ref_name` | Branch/ref to check out. Exposed to `yana.yaml` as `${GIT_BRANCH}`. |
 | `run-duration-seconds` | no | `3600` | Per-run time budget; restarted on early exit until elapsed. |
-| `github-token` | no | `${{ github.token }}` | Token to install the (private) yana CLI release. |
 | `openrouter-api-key` | no | `""` | `OPENROUTER_API_KEY`. |
 | `openai-api-key` | no | `""` | `OPENAI_API_KEY`. |
 | `anthropic-api-key` | no | `""` | `ANTHROPIC_API_KEY`. |
@@ -119,23 +115,21 @@ key in your committed `yana.yaml` / `agent.yaml` / `mcp.json` as `${KEY}`. This
 makes "add a secret" a one-line caller change (add a repo secret + one
 `KEY=...` line) with zero action/release churn.
 
-## Repo identity (auto-derived)
+## Repo identity (config-only)
 
-The action derives the repository it operates on from the GitHub context, so the
-calling repo does **not** have to restate the repo it was just checked out from.
-The `repo-url` (default `${{ github.server_url }}/${{ github.repository }}.git`)
-and `ref` (default `${{ github.ref_name }}`) inputs are injected into the
-generated `.env` as `GIT_REPO_URL` and `GIT_BRANCH`. Reference them in your
-committed `yana.yaml`:
+The repository the sandbox operates on is defined **exclusively** in the caller's
+committed config — the action does not configure it and cannot override it. Set
+it in your `yana.yaml` (or `.yana/<agent>/agent.yaml`):
 
 ```yaml
 git:
-  repo_url: "${GIT_REPO_URL}"
-  branch: "${GIT_BRANCH}"
+  repo_url: "https://github.com/your-org/your-repo.git"
+  branch: "main"
 ```
 
-Override `repo-url`/`ref` only to run the sandbox against a different repo/branch
-than the one running the workflow.
+This keeps a single canonical source of truth for the repo, avoiding the
+duplicate-clone problem that arose when the action injected a differently-cased
+GitHub-context URL alongside the hand-written one.
 
 ## Git credentials (use a short-lived App token)
 
@@ -178,11 +172,10 @@ use the App token when you need the **Yana App identity** on commits/PRs or
 
 ## Caller responsibilities
 
-- Commit your own `yana.yaml` (LLM provider; `git.repo_url`/`branch` may use the
-  auto-injected `${GIT_REPO_URL}`/`${GIT_BRANCH}`) and `.yana/<agent>/`
-  (`agent.yaml` + `mcp.json`) in the calling repo, mirroring local usage. The
-  action does **not** template config — it only injects secrets and selects the
-  agent.
+- Commit your own `yana.yaml` (LLM provider; `git.repo_url`/`branch` set
+  explicitly) and `.yana/<agent>/` (`agent.yaml` + `mcp.json`) in the calling
+  repo, mirroring local usage. The action does **not** template config or
+  configure the repository — it only injects secrets and selects the agent.
 - Provide a `ghcr-token` with `read:packages` on the `jetbrains` org while the
   images are private.
 

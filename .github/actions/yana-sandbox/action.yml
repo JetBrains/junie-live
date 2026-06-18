@@ -16,27 +16,10 @@ inputs:
     description: "Directory containing the caller's yana.yaml (and .yana/<agent>/)."
     required: false
     default: "."
-  repo-url:
-    description: >-
-      Git repository URL the sandbox should operate on. Defaults to the calling
-      repository (derived from the GitHub context), so the caller's yana.yaml does
-      not need to restate it (reference it as ${GIT_REPO_URL}).
-    required: false
-    default: ${{ github.server_url }}/${{ github.repository }}.git
-  ref:
-    description: >-
-      Git branch/ref the sandbox should check out. Defaults to the workflow's ref
-      (github.ref_name); reference it in yana.yaml as ${GIT_BRANCH}.
-    required: false
-    default: ${{ github.ref_name }}
   run-duration-seconds:
     description: "Total time budget for this job; the sandbox is restarted on early exit until it elapses."
     required: false
     default: "3600"
-  github-token:
-    description: "Token used to install the (private) yana CLI release via install.sh. Defaults to the job token."
-    required: false
-    default: ${{ github.token }}
   # --- Secrets (only non-empty ones are written to the generated .env) ---
   openrouter-api-key:
     description: "OpenRouter API key (OPENROUTER_API_KEY)."
@@ -108,7 +91,7 @@ runs:
     - name: Install yana CLI
       shell: bash
       env:
-        GITHUB_TOKEN: ${{ inputs.github-token }}
+        GITHUB_TOKEN: ${{ github.token }}
         YANA_VERSION: ${{ inputs.yana-version }}
       run: |
         set -euo pipefail
@@ -155,8 +138,6 @@ runs:
       id: gen-env
       shell: bash
       env:
-        GIT_REPO_URL: ${{ inputs.repo-url }}
-        GIT_BRANCH: ${{ inputs.ref }}
         YANA_TOKEN_SECRET: ${{ inputs.yana-token-secret }}
         YANA_LIVE_BACKEND_TOKEN: ${{ inputs.yana-live-backend-token }}
         OPENROUTER_API_KEY: ${{ inputs.openrouter-api-key }}
@@ -180,11 +161,11 @@ runs:
             printf '%s=%s\n' "$key" "$val" >> "$env_file"
           fi
         }
-        # Repo identity derived from the GitHub context (Option 1): the caller's
-        # yana.yaml references these as ${GIT_REPO_URL}/${GIT_BRANCH} instead of
-        # hardcoding the repo it was just checked out from.
-        write_kv GIT_REPO_URL "${GIT_REPO_URL}"
-        write_kv GIT_BRANCH "${GIT_BRANCH}"
+        # The repository the sandbox operates on is defined EXCLUSIVELY in the
+        # caller's yana.yaml / .yana/<agent>/agent.yaml (git.repo_url / git.repos).
+        # The action does not inject repo identity, so it cannot override or
+        # second-guess the config (which previously caused duplicate clones when
+        # the GitHub-context URL casing differed from the hand-written one).
         write_kv YANA_TOKEN_SECRET "${YANA_TOKEN_SECRET}"
         write_kv YANA_LIVE_BACKEND_TOKEN "${YANA_LIVE_BACKEND_TOKEN}"
         write_kv OPENROUTER_API_KEY "${OPENROUTER_API_KEY}"
@@ -234,7 +215,7 @@ runs:
           extra=$(( extra + 1 ))
         done <<< "${EXTRA_SECRETS:-}"
         echo "env-file=${env_file}" >> "$GITHUB_OUTPUT"
-        echo "Wrote $(wc -l < "$env_file" | tr -d ' ') entr(ies) to generated .env (repo=${GIT_REPO_URL}, branch=${GIT_BRANCH}; ${extra} from extra-secrets)"
+        echo "Wrote $(wc -l < "$env_file" | tr -d ' ') entr(ies) to generated .env (${extra} from extra-secrets)"
 
     - name: Resolve yana log directory
       id: logs
