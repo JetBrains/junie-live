@@ -196,6 +196,7 @@ runs:
         write_kv GIT_TOKEN "${GIT_TOKEN}"
         write_kv BOT_USER_ACCESS_TOKEN "${BOT_USER_ACCESS_TOKEN}"
         write_kv SLACK_APP_TOKEN "${SLACK_APP_TOKEN}"
+        write_kv WEB_SEARCH_TOKEN "${WEB_SEARCH_TOKEN}"
         write_kv GITHUB_MCP_TOKEN "${GITHUB_MCP_TOKEN}"
         # Open pass-through: arbitrary per-service/MCP/channel secrets the action
         # does not name. Each KEY=VALUE line is validated and appended to the same
