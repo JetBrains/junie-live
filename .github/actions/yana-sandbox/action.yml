@@ -65,6 +65,10 @@ inputs:
     description: "Slack app-level token with connections:write (SLACK_APP_TOKEN)."
     required: false
     default: ""
+  web-search-mcp-token:
+    description: "Tavily token without the Bearer prefix."
+    required: false
+    default: ""
   github-mcp-token:
     description: "GitHub MCP upstream token (GITHUB_MCP_TOKEN)."
     required: false
@@ -149,6 +153,7 @@ runs:
         GIT_TOKEN: ${{ inputs.git-token }}
         BOT_USER_ACCESS_TOKEN: ${{ inputs.slack-bot-token }}
         SLACK_APP_TOKEN: ${{ inputs.slack-app-token }}
+        WEB_SEARCH_TOKEN: ${{ inputs.web-search-mcp-token }}
         GITHUB_MCP_TOKEN: ${{ inputs.github-mcp-token }}
         EXTRA_SECRETS: ${{ inputs.extra-secrets }}
       run: |
