@@ -20,68 +20,31 @@ inputs:
     description: "Total time budget for this job; the sandbox is restarted on early exit until it elapses."
     required: false
     default: "3600"
-  # --- Secrets (only non-empty ones are written to the generated .env) ---
-  openrouter-api-key:
-    description: "OpenRouter API key (OPENROUTER_API_KEY)."
-    required: false
-    default: ""
-  openai-api-key:
-    description: "OpenAI API key (OPENAI_API_KEY)."
-    required: false
-    default: ""
-  anthropic-api-key:
-    description: "Anthropic API key (ANTHROPIC_API_KEY)."
-    required: false
-    default: ""
-  github-app-id:
-    description: "GitHub App ID (GITHUB_APP_ID)."
-    required: false
-    default: ""
-  github-app-private-key:
-    description: "GitHub App private key (GITHUB_APP_PRIVATE_KEY). Accepts either a base64-encoded PEM or a raw multi-line PEM — a raw PEM is normalized to single-line base64 before being written to the proxy .env."
-    required: false
-    default: ""
-  github-app-installation-id:
-    description: "GitHub App installation ID (GITHUB_APP_INSTALLATION_ID)."
-    required: false
-    default: ""
-  git-token:
-    description: "Personal access token alternative to the GitHub App (GIT_TOKEN)."
-    required: false
-    default: ""
-  yana-token-secret:
-    description: "Shared agent-to-proxy auth token (YANA_TOKEN_SECRET)."
-    required: false
-    default: ""
-  yana-live-backend-token:
-    description: "Junie Live backend API token (YANA_LIVE_BACKEND_TOKEN)."
-    required: false
-    default: ""
-  slack-bot-token:
-    description: "Slack bot token (BOT_USER_ACCESS_TOKEN)."
-    required: false
-    default: ""
-  slack-app-token:
-    description: "Slack app-level token with connections:write (SLACK_APP_TOKEN)."
-    required: false
-    default: ""
-  web-search-mcp-token:
-    description: "Tavily token without the Bearer prefix (WEB_SEARCH_TOKEN)."
-    required: false
-    default: ""
-  github-mcp-token:
-    description: "GitHub MCP upstream token (GITHUB_MCP_TOKEN)."
+  # --- Configuration environment (written to the generated proxy-facing .env) ---
+  configuration-envs:
+    description: >-
+      Newline-separated KEY=VALUE pairs written to the generated proxy-facing
+      .env (chmod 600). This is the way to pass ALL secrets and configuration
+      env vars to the sandbox: write the canonical env keys the proxies / CLI
+      read, e.g. OPENROUTER_API_KEY=..., OPENAI_API_KEY=..., ANTHROPIC_API_KEY=...,
+      GITHUB_APP_ID=..., GITHUB_APP_INSTALLATION_ID=..., GIT_TOKEN=...,
+      YANA_TOKEN_SECRET=..., YANA_LIVE_BACKEND_TOKEN=..., BOT_USER_ACCESS_TOKEN=...,
+      SLACK_APP_TOKEN=..., WEB_SEARCH_TOKEN=..., GITHUB_MCP_TOKEN=..., plus any
+      arbitrary per-service / MCP / channel value (NOTION_TOKEN=...) or non-secret
+      configuration (YANA_LIVE_OVERRIDE_PROJECT_ID=...). Reference them in
+      yana.yaml / agent.yaml / mcp.json as ${KEY}. Blank lines and #-comments are
+      ignored; each non-empty line must match ^[A-Za-z_][A-Za-z0-9_]*=; empty
+      values are skipped; every value is masked in logs. GITHUB_APP_PRIVATE_KEY
+      must be a SINGLE-LINE base64-encoded PEM (base64 -w0 key.pem) — a raw
+      multi-line PEM is rejected, as the line-based .env cannot carry it.
     required: false
     default: ""
   extra-secrets:
     description: >-
-      Newline-separated KEY=VALUE pairs appended verbatim to the generated .env.
-      Use for arbitrary per-service / MCP / channel secrets the action does not
-      name explicitly (e.g. NOTION_TOKEN=..., JIRA_TOKEN=...). Reference them in
-      yana.yaml / agent.yaml / mcp.json as ${KEY}. Blank lines and #-comments are
-      ignored; each non-empty line must match ^[A-Za-z_][A-Za-z0-9_]*=. Values
-      are masked in logs. Keep individual secrets in GitHub Secrets and only wire
-      them here, e.g. a NOTION_TOKEN line referencing secrets.NOTION_TOKEN.
+      DEPRECATED — use configuration-envs. Kept as an alias for one release: when
+      non-empty its lines are merged AFTER the configuration-envs lines and a
+      deprecation warning is emitted (on duplicate keys the .env parser's
+      last-wins applies). Same KEY=VALUE format, validation, and masking.
     required: false
     default: ""
   ghcr-token:
@@ -142,75 +105,49 @@ runs:
       id: gen-env
       shell: bash
       env:
-        YANA_TOKEN_SECRET: ${{ inputs.yana-token-secret }}
-        YANA_LIVE_BACKEND_TOKEN: ${{ inputs.yana-live-backend-token }}
-        OPENROUTER_API_KEY: ${{ inputs.openrouter-api-key }}
-        OPENAI_API_KEY: ${{ inputs.openai-api-key }}
-        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
-        GITHUB_APP_ID: ${{ inputs.github-app-id }}
-        GITHUB_APP_PRIVATE_KEY: ${{ inputs.github-app-private-key }}
-        GITHUB_APP_INSTALLATION_ID: ${{ inputs.github-app-installation-id }}
-        GIT_TOKEN: ${{ inputs.git-token }}
-        BOT_USER_ACCESS_TOKEN: ${{ inputs.slack-bot-token }}
-        SLACK_APP_TOKEN: ${{ inputs.slack-app-token }}
-        WEB_SEARCH_TOKEN: ${{ inputs.web-search-mcp-token }}
-        GITHUB_MCP_TOKEN: ${{ inputs.github-mcp-token }}
-        EXTRA_SECRETS: ${{ inputs.extra-secrets }}
+        CONFIGURATION_ENVS: ${{ inputs.configuration-envs }}
+        EXTRA_SECRETS_DEPRECATED: ${{ inputs.extra-secrets }}
       run: |
         set -euo pipefail
         env_file="$(mktemp "${RUNNER_TEMP:-/tmp}/yana-env.XXXXXX")"
         chmod 600 "$env_file"
-        write_kv() {
-          local key="$1" val="$2"
-          if [ -n "$val" ]; then
-            printf '%s=%s\n' "$key" "$val" >> "$env_file"
-          fi
-        }
         # The repository the sandbox operates on is defined EXCLUSIVELY in the
         # caller's yana.yaml / .yana/<agent>/agent.yaml (git.repo_url / git.repos).
         # The action does not inject repo identity, so it cannot override or
         # second-guess the config (which previously caused duplicate clones when
         # the GitHub-context URL casing differed from the hand-written one).
-        write_kv YANA_TOKEN_SECRET "${YANA_TOKEN_SECRET}"
-        write_kv YANA_LIVE_BACKEND_TOKEN "${YANA_LIVE_BACKEND_TOKEN}"
-        write_kv OPENROUTER_API_KEY "${OPENROUTER_API_KEY}"
-        write_kv OPENAI_API_KEY "${OPENAI_API_KEY}"
-        write_kv ANTHROPIC_API_KEY "${ANTHROPIC_API_KEY}"
-        write_kv GITHUB_APP_ID "${GITHUB_APP_ID}"
-        # GITHUB_APP_PRIVATE_KEY may be supplied as a RAW, multi-line PEM. The
-        # generated file is a line-based .env (KEY=VALUE per line), so a value
-        # containing newlines would be split across many lines: the proxies'
-        # parser would read only the first line ("-----BEGIN ...") as the value,
-        # producing an invalid PEM that makes git-proxy/mcp-proxy log.Fatalf and
-        # exit 1 ("dependency failed to start: container yana-mcp-proxy exited
-        # (1)"). Normalize any raw PEM to single-line base64 before writing;
-        # git-proxy and mcp-proxy both accept base64-encoded PEM. An already
-        # base64-encoded key (no "-----BEGIN" marker) is passed through unchanged.
-        case "${GITHUB_APP_PRIVATE_KEY}" in
-          *-----BEGIN*)
-            GITHUB_APP_PRIVATE_KEY="$(printf '%s' "${GITHUB_APP_PRIVATE_KEY}" | base64 | tr -d '\n')"
-            ;;
-        esac
-        write_kv GITHUB_APP_PRIVATE_KEY "${GITHUB_APP_PRIVATE_KEY}"
-        write_kv GITHUB_APP_INSTALLATION_ID "${GITHUB_APP_INSTALLATION_ID}"
-        write_kv GIT_TOKEN "${GIT_TOKEN}"
-        write_kv BOT_USER_ACCESS_TOKEN "${BOT_USER_ACCESS_TOKEN}"
-        write_kv SLACK_APP_TOKEN "${SLACK_APP_TOKEN}"
-        write_kv WEB_SEARCH_TOKEN "${WEB_SEARCH_TOKEN}"
-        write_kv GITHUB_MCP_TOKEN "${GITHUB_MCP_TOKEN}"
-        # Open pass-through: arbitrary per-service/MCP/channel secrets the action
-        # does not name. Each KEY=VALUE line is validated and appended to the same
-        # proxy-facing .env so the sandbox stays secretless (mirrors filling .env
-        # locally). Skip blanks/#-comments; mask values defensively.
-        extra=0
+        #
+        # All secrets and configuration env vars reach the proxy-facing .env
+        # through configuration-envs (a single newline-separated KEY=VALUE
+        # source). The deprecated extra-secrets alias is merged AFTER it for one
+        # release; on duplicate keys the .env parser's last-wins applies.
+        if [ -n "${EXTRA_SECRETS_DEPRECATED:-}" ]; then
+          echo "::warning::'extra-secrets' is deprecated; rename it to 'configuration-envs' (same KEY=VALUE format)."
+        fi
+        combined="${CONFIGURATION_ENVS:-}"$'\n'"${EXTRA_SECRETS_DEPRECATED:-}"
+        count=0
         while IFS= read -r line || [ -n "$line" ]; do
           # Trim leading/trailing whitespace.
           line="${line#"${line%%[![:space:]]*}"}"
           line="${line%"${line##*[![:space:]]}"}"
           [ -z "$line" ] && continue
           case "$line" in \#*) continue ;; esac
+          # Fail fast on raw PEM material. The generated file is a line-based .env
+          # (KEY=VALUE per line), so a multi-line PEM would be split across many
+          # lines: the proxies' parser would read only the first line as the
+          # value, producing an invalid GITHUB_APP_PRIVATE_KEY that makes
+          # git-proxy/mcp-proxy log.Fatalf and exit 1 ("dependency failed to
+          # start: container yana-mcp-proxy exited (1)"). This guard runs BEFORE
+          # the KEY=VALUE check so BOTH the "KEY=-----BEGIN..." first line and any
+          # bare continuation / -----END line abort the step with a clear error.
+          case "$line" in
+            *-----BEGIN*)
+              echo "::error::configuration-envs contains a raw PEM (a line with '-----BEGIN'); the line-based .env cannot carry a multi-line value. base64-encode it (base64 -w0 key.pem) and pass the single-line value."
+              exit 1
+              ;;
+          esac
           if ! printf '%s' "$line" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*='; then
-            echo "Ignoring malformed extra-secrets line (expected KEY=VALUE): ${line%%=*}..." >&2
+            echo "Ignoring malformed configuration-envs line (expected KEY=VALUE): ${line%%=*}..." >&2
             continue
           fi
           key="${line%%=*}"
@@ -218,10 +155,10 @@ runs:
           [ -z "$val" ] && continue
           echo "::add-mask::${val}"
           printf '%s=%s\n' "$key" "$val" >> "$env_file"
-          extra=$(( extra + 1 ))
-        done <<< "${EXTRA_SECRETS:-}"
+          count=$(( count + 1 ))
+        done <<< "${combined}"
         echo "env-file=${env_file}" >> "$GITHUB_OUTPUT"
-        echo "Wrote $(wc -l < "$env_file" | tr -d ' ') entr(ies) to generated .env (${extra} from extra-secrets)"
+        echo "Wrote ${count} entr(ies) to generated .env from configuration-envs"
 
     - name: Resolve yana log directory
       id: logs

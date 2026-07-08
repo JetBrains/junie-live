@@ -18,14 +18,17 @@ the sandbox for a bounded, self-restarting window.
   with:
     agent: junie-test
     run-duration-seconds: "18000"  # up to 5h (GitHub job cap is ~6h)
-    openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
-    # Only the ~1h installation token enters the sandbox — not the App key.
-    git-token: ${{ steps.app-token.outputs.token }}
-    github-mcp-token: ${{ steps.app-token.outputs.token }}
-    yana-token-secret: ${{ secrets.YANA_TOKEN_SECRET }}
-    slack-bot-token: ${{ secrets.BOT_USER_ACCESS_TOKEN }}
-    slack-app-token: ${{ secrets.SLACK_APP_TOKEN }}
     ghcr-token: ${{ secrets.GHCR_TOKEN }}
+    # Every secret / config value reaches the sandbox as a KEY=VALUE line here
+    # (canonical env keys — see .env.example). The sandbox stays secretless.
+    configuration-envs: |
+      OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+      # Only the ~1h installation token enters the sandbox — not the App key.
+      GIT_TOKEN=${{ steps.app-token.outputs.token }}
+      GITHUB_MCP_TOKEN=${{ steps.app-token.outputs.token }}
+      YANA_TOKEN_SECRET=${{ secrets.YANA_TOKEN_SECRET }}
+      BOT_USER_ACCESS_TOKEN=${{ secrets.BOT_USER_ACCESS_TOKEN }}
+      SLACK_APP_TOKEN=${{ secrets.SLACK_APP_TOKEN }}
 ```
 
 ## How it works
@@ -35,10 +38,10 @@ the sandbox for a bounded, self-restarting window.
    `github.token` to fetch the release.
 2. **GHCR login** — logs in to `ghcr.io` with `ghcr-token` so the private
    `ghcr.io/jetbrains/yana/*` images can be pulled.
-3. **Generate `.env`** — writes only the non-empty secret inputs (plus any
-   `extra-secrets` KEY=VALUE lines) to a `chmod 600` temp file (keys match
-   `.env.example`). Secrets land only in this proxy-facing file; the agent
-   container keeps zero credentials.
+3. **Generate `.env`** — writes the `configuration-envs` `KEY=VALUE` lines
+   (plus any from the deprecated `extra-secrets` alias) to a `chmod 600` temp
+   file (keys match `.env.example`). Secrets land only in this proxy-facing
+   file; the agent container keeps zero credentials.
 4. **Supervised run** — `run-sandbox.sh` runs
    `yana --env-file <env> --agent <agent> yana.yaml` in the foreground under
    `timeout -s INT <budget>`. If `yana` exits early it tears the stack down and
@@ -72,48 +75,72 @@ surfaces it to the user.
 | `yana-version` | no | `latest` | yana CLI release tag, or `latest`. |
 | `working-directory` | no | `.` | Directory containing the caller's `yana.yaml`. |
 | `run-duration-seconds` | no | `3600` | Per-run time budget; restarted on early exit until elapsed. |
-| `openrouter-api-key` | no | `""` | `OPENROUTER_API_KEY`. |
-| `openai-api-key` | no | `""` | `OPENAI_API_KEY`. |
-| `anthropic-api-key` | no | `""` | `ANTHROPIC_API_KEY`. |
-| `git-token` | no | `""` | `GIT_TOKEN` — preferred: a short-lived installation token from `actions/create-github-app-token` (see below). |
-| `github-app-id` | no | `""` | `GITHUB_APP_ID` (legacy fallback; prefer `git-token`). |
-| `github-app-private-key` | no | `""` | `GITHUB_APP_PRIVATE_KEY`, base64 PEM (legacy fallback — forwards the org-wide key into the sandbox; prefer `git-token`). |
-| `github-app-installation-id` | no | `""` | `GITHUB_APP_INSTALLATION_ID` (legacy fallback; prefer `git-token`). |
-| `yana-token-secret` | no | `""` | `YANA_TOKEN_SECRET` (agent↔proxy auth). |
-| `slack-bot-token` | no | `""` | `BOT_USER_ACCESS_TOKEN` (Slack `xoxb-` bot token). |
-| `slack-app-token` | no | `""` | `SLACK_APP_TOKEN` (Slack `xapp-` app-level token with `connections:write`). |
-| `github-mcp-token` | no | `""` | `GITHUB_MCP_TOKEN`. |
-| `extra-secrets` | no | `""` | Newline-separated `KEY=VALUE` pairs for arbitrary per-service/MCP/channel secrets the action does not name (see below). |
+| `configuration-envs` | no | `""` | Newline-separated `KEY=VALUE` pairs written to the proxy-facing `.env`; **all** secrets and config env vars go here (see below). |
+| `extra-secrets` | no | `""` | **DEPRECATED** — use `configuration-envs`. Accepted for one release as an alias (its lines merged after `configuration-envs`, with a deprecation warning). |
 | `ghcr-token` | no | `""` | Token with `read:packages` for private images. |
 
-## Arbitrary service secrets (`extra-secrets`)
+## Configuration environment (`configuration-envs`)
 
-The named inputs above cover the fixed infra secrets, but Yana's configs
-(`yana.yaml`, `agent.yaml`, `mcp.json`) consume an **open `${VAR}` namespace** —
-a new MCP server or channel can need any secret (e.g. `${NOTION_TOKEN}`,
-`${JIRA_TOKEN}`). Rather than adding a typed input + cutting a release for each
-one, pass them through the open `extra-secrets` input as newline-separated
-`KEY=VALUE` pairs:
+All secrets and configuration env vars reach the sandbox through the single
+`configuration-envs` input — newline-separated `KEY=VALUE` pairs written to the
+`chmod 600` proxy-facing `.env`. Write the **canonical env keys** the proxies /
+CLI read (the same names as a local `.env`; see `.env.example`), anything Yana's
+configs (`yana.yaml`, `agent.yaml`, `mcp.json`) reference through their **open
+`${VAR}` namespace** (e.g. `${NOTION_TOKEN}`, `${JIRA_TOKEN}`), and any
+non-secret configuration (e.g. `YANA_LIVE_OVERRIDE_PROJECT_ID`):
 
 ```yaml
 - uses: jetbrains/junie-live/.github/actions/yana-sandbox@main
   with:
     agent: junie-test
-    openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
-    extra-secrets: |
-      GITHUB_MCP_TOKEN=${{ secrets.GITHUB_MCP_TOKEN }}
+    ghcr-token: ${{ secrets.GHCR_TOKEN }}
+    configuration-envs: |
+      OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+      GIT_TOKEN=${{ steps.app-token.outputs.token }}
+      GITHUB_MCP_TOKEN=${{ steps.app-token.outputs.token }}
       NOTION_TOKEN=${{ secrets.NOTION_TOKEN }}
       JIRA_TOKEN=${{ secrets.JIRA_TOKEN }}
 ```
 
 Each non-empty line is validated (`^[A-Za-z_][A-Za-z0-9_]*=`), masked in logs
-with `::add-mask::`, and appended to the **same** `chmod 600` proxy-facing
-`.env` as the named inputs — so secrets still land only in the proxies and the
-sandbox stays secretless and egress-gated. Blank lines and `#`-comments are
-ignored; malformed lines and lines with empty values are skipped. Reference each
-key in your committed `yana.yaml` / `agent.yaml` / `mcp.json` as `${KEY}`. This
-makes "add a secret" a one-line caller change (add a repo secret + one
-`KEY=...` line) with zero action/release churn.
+with `::add-mask::`, and appended to the `chmod 600` proxy-facing `.env` — so
+secrets still land only in the proxies and the sandbox stays secretless and
+egress-gated. Blank lines and `#`-comments are ignored; malformed lines and
+lines with empty values are skipped. Reference each key in your committed
+`yana.yaml` / `agent.yaml` / `mcp.json` as `${KEY}`. Adding a secret is a
+one-line caller change (add a repo secret + one `KEY=...` line) with zero
+action/release churn.
+
+**No raw PEMs.** The `.env` is line-based and cannot carry a multi-line value,
+so a `GITHUB_APP_PRIVATE_KEY` must be a **single-line base64-encoded PEM**
+(`base64 -w0 key.pem`). Any line containing `-----BEGIN` aborts the run with an
+actionable error rather than silently corrupting the key (which used to crash
+git-proxy/mcp-proxy at startup).
+
+### Migrating from the old named inputs
+
+Earlier versions of this action had a typed input per secret. Those inputs are
+removed; pass each as a `configuration-envs` line using its env key:
+
+| Former input | `configuration-envs` line |
+| --- | --- |
+| `openrouter-api-key` | `OPENROUTER_API_KEY=...` |
+| `openai-api-key` | `OPENAI_API_KEY=...` |
+| `anthropic-api-key` | `ANTHROPIC_API_KEY=...` |
+| `github-app-id` | `GITHUB_APP_ID=...` |
+| `github-app-private-key` | `GITHUB_APP_PRIVATE_KEY=...` (single-line base64 PEM) |
+| `github-app-installation-id` | `GITHUB_APP_INSTALLATION_ID=...` |
+| `git-token` | `GIT_TOKEN=...` |
+| `yana-token-secret` | `YANA_TOKEN_SECRET=...` |
+| `yana-live-backend-token` | `YANA_LIVE_BACKEND_TOKEN=...` |
+| `slack-bot-token` | `BOT_USER_ACCESS_TOKEN=...` |
+| `slack-app-token` | `SLACK_APP_TOKEN=...` |
+| `web-search-mcp-token` | `WEB_SEARCH_TOKEN=...` |
+| `github-mcp-token` | `GITHUB_MCP_TOKEN=...` |
+
+The `extra-secrets` input is **deprecated** but still accepted for one release:
+its lines are merged after `configuration-envs` (with a deprecation warning), so
+just rename the key to `configuration-envs`.
 
 ## Repo identity (config-only)
 
@@ -138,7 +165,7 @@ org-wide shared secret that can mint tokens for every installation of the App.
 Instead, because the Yana App is installed in the calling repo, mint a
 **short-lived, repo-scoped installation token** on the runner with the official
 [`actions/create-github-app-token`](https://github.com/actions/create-github-app-token)
-and pass only that token in as `git-token` (and `github-mcp-token`):
+and pass only that token in as the `GIT_TOKEN` (and `GITHUB_MCP_TOKEN`) lines:
 
 ```yaml
 - id: app-token
@@ -150,25 +177,28 @@ and pass only that token in as `git-token` (and `github-mcp-token`):
 - uses: jetbrains/junie-live/.github/actions/yana-sandbox@main
   with:
     agent: junie-test
-    git-token: ${{ steps.app-token.outputs.token }}
-    github-mcp-token: ${{ steps.app-token.outputs.token }}
-    # ...other inputs...
+    configuration-envs: |
+      GIT_TOKEN=${{ steps.app-token.outputs.token }}
+      GITHUB_MCP_TOKEN=${{ steps.app-token.outputs.token }}
+      # ...other KEY=VALUE lines...
 ```
 
 The token is scoped to the installation and expires in ~1h. A fresh token is
 minted on every scheduled run. The CLI's existing `GIT_TOKEN` code path consumes
 it unchanged, so the `git.token` branch of `validate.go` is satisfied and the
-`github-app-*` inputs are not needed. **For runs longer than the ~1h token
+`GITHUB_APP_*` lines are not needed. **For runs longer than the ~1h token
 lifetime** (e.g. the 5-hour `run-duration-seconds: "18000"` budget) git
-operations stop working once the token expires; use the `github-app-*` **legacy
-fallback** inputs (the App-credentials path auto-refreshes the token in-sandbox)
-if you need git access for the full window — at the cost of forwarding the
-private key into the sandbox.
+operations stop working once the token expires; supply the `GITHUB_APP_ID`,
+`GITHUB_APP_INSTALLATION_ID`, and `GITHUB_APP_PRIVATE_KEY` lines instead (the
+App-credentials path auto-refreshes the token in-sandbox) if you need git access
+for the full window — at the cost of forwarding the private key into the
+sandbox. `GITHUB_APP_PRIVATE_KEY` must be a single-line base64-encoded PEM
+(`base64 -w0 key.pem`); a raw multi-line PEM is rejected by the `.env` generator.
 
 For same-repo-only access you can instead pass the workflow's built-in
-`${{ github.token }}` (with `permissions: { contents: write }`) as `git-token`;
-use the App token when you need the **Yana App identity** on commits/PRs or
-**cross-repo** access.
+`${{ github.token }}` (with `permissions: { contents: write }`) as the
+`GIT_TOKEN` line; use the App token when you need the **Yana App identity** on
+commits/PRs or **cross-repo** access.
 
 ## Caller responsibilities
 
@@ -188,6 +218,6 @@ use the App token when you need the **Yana App identity** on commits/PRs or
 - GitHub jobs are capped at ~6h and scheduled crons can be delayed under load;
   a 5-hour budget (`timeout-minutes: 330`) plus an every-5-hours schedule keeps
   each job within the limit.
-- A short-lived App installation token (`git-token`) lasts ~1h; for the full 5h
-  window use the `github-app-*` fallback (auto-refreshes) if git access must
-  outlive the token.
+- A short-lived App installation token (the `GIT_TOKEN` line) lasts ~1h; for the
+  full 5h window supply the `GITHUB_APP_*` lines instead (auto-refreshes) if git
+  access must outlive the token.
