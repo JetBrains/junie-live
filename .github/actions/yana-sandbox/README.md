@@ -111,11 +111,16 @@ lines with empty values are skipped. Reference each key in your committed
 one-line caller change (add a repo secret + one `KEY=...` line) with zero
 action/release churn.
 
-**No raw PEMs.** The `.env` is line-based and cannot carry a multi-line value,
-so a `GITHUB_APP_PRIVATE_KEY` must be a **single-line base64-encoded PEM**
-(`base64 -w0 key.pem`). Any line containing `-----BEGIN` aborts the run with an
-actionable error rather than silently corrupting the key (which used to crash
-git-proxy/mcp-proxy at startup).
+**Raw multi-line PEMs are auto-normalized.** The `.env` is line-based and
+cannot carry a multi-line value, so a raw multi-line PEM (a `KEY=-----BEGIN...`
+line followed by continuation lines up to `-----END...`) is **collected** by the
+action's parser and written as a **single-line base64-encoded value** — which
+`git-proxy`/`mcp-proxy` accept transparently. This lets a caller paste a
+`GITHUB_APP_PRIVATE_KEY` repo secret verbatim (e.g.
+`GITHUB_APP_PRIVATE_KEY=${{ secrets.YANA_APP_PRIVATE_KEY }}`) without a
+pre-processing step. For stability across YAML/secret-store round-trips, prefer
+**pre-encoding once** (`base64 -w0 key.pem`) and passing the resulting
+single-line value.
 
 ### Migrating from the old named inputs
 
@@ -128,7 +133,7 @@ removed; pass each as a `configuration-envs` line using its env key:
 | `openai-api-key` | `OPENAI_API_KEY=...` |
 | `anthropic-api-key` | `ANTHROPIC_API_KEY=...` |
 | `github-app-id` | `GITHUB_APP_ID=...` |
-| `github-app-private-key` | `GITHUB_APP_PRIVATE_KEY=...` (single-line base64 PEM) |
+| `github-app-private-key` | `GITHUB_APP_PRIVATE_KEY=...` (raw multi-line PEM auto-normalized; base64 preferred) |
 | `github-app-installation-id` | `GITHUB_APP_INSTALLATION_ID=...` |
 | `git-token` | `GIT_TOKEN=...` |
 | `yana-token-secret` | `YANA_TOKEN_SECRET=...` |
@@ -192,8 +197,9 @@ operations stop working once the token expires; supply the `GITHUB_APP_ID`,
 `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_APP_PRIVATE_KEY` lines instead (the
 App-credentials path auto-refreshes the token in-sandbox) if you need git access
 for the full window — at the cost of forwarding the private key into the
-sandbox. `GITHUB_APP_PRIVATE_KEY` must be a single-line base64-encoded PEM
-(`base64 -w0 key.pem`); a raw multi-line PEM is rejected by the `.env` generator.
+sandbox. `GITHUB_APP_PRIVATE_KEY` may be pasted as a **raw multi-line PEM** (the
+action auto-normalizes it to single-line base64) or as a **pre-encoded** value
+(`base64 -w0 key.pem`); pre-encoding is preferred for stability.
 
 For same-repo-only access you can instead pass the workflow's built-in
 `${{ github.token }}` (with `permissions: { contents: write }`) as the

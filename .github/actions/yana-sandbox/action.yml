@@ -34,9 +34,11 @@ inputs:
       configuration (YANA_LIVE_OVERRIDE_PROJECT_ID=...). Reference them in
       yana.yaml / agent.yaml / mcp.json as ${KEY}. Blank lines and #-comments are
       ignored; each non-empty line must match ^[A-Za-z_][A-Za-z0-9_]*=; empty
-      values are skipped; every value is masked in logs. GITHUB_APP_PRIVATE_KEY
-      must be a SINGLE-LINE base64-encoded PEM (base64 -w0 key.pem) — a raw
-      multi-line PEM is rejected, as the line-based .env cannot carry it.
+      values are skipped; every value is masked in logs. Raw multi-line PEMs
+      (a KEY=-----BEGIN... line followed by continuation lines up to -----END)
+      are auto-normalized to a single-line base64 value the proxies accept — so
+      GITHUB_APP_PRIVATE_KEY may be pasted verbatim from a repo secret; for
+      stability, prefer pre-encoding it once (base64 -w0 key.pem).
     required: false
     default: ""
   extra-secrets:
@@ -126,24 +128,61 @@ runs:
         fi
         combined="${CONFIGURATION_ENVS:-}"$'\n'"${EXTRA_SECRETS_DEPRECATED:-}"
         count=0
+        # Raw-PEM auto-normalization state. The generated file is a line-based
+        # .env (KEY=VALUE per line), so a multi-line PEM cannot be written as
+        # multiple lines — the proxies' parser would read only the first line as
+        # the value and log.Fatalf on the corrupted key. Instead, when a
+        # 'KEY=-----BEGIN...' line is seen we accumulate every subsequent line
+        # verbatim until '-----END...', then base64-encode the whole raw PEM as
+        # a single-line value (git-proxy/mcp-proxy accept both raw PEM and
+        # base64-encoded PEM — see libraries/git-support/config.go). This lets a
+        # caller paste a repo secret containing a raw PEM directly, without a
+        # pre-processing step; a pre-encoded single-line value keeps working
+        # unchanged (no '-----BEGIN' marker => normal KEY=VALUE path).
+        in_pem=0
+        pem_key=""
+        pem_body=""
+        flush_pem() {
+          local encoded
+          # `base64 -w0` is GNU coreutils; fall back to tr -d '\n' for BSD.
+          encoded=$(printf '%s' "$pem_body" | base64 -w0 2>/dev/null) \
+            || encoded=$(printf '%s' "$pem_body" | base64 | tr -d '\n')
+          echo "::add-mask::${encoded}"
+          printf '%s=%s\n' "$pem_key" "$encoded" >> "$env_file"
+          echo "Auto-normalized raw multi-line PEM for '${pem_key}' to single-line base64 in the generated .env (pre-encode with 'base64 -w0 key.pem' for stability)."
+          count=$(( count + 1 ))
+          in_pem=0
+          pem_key=""
+          pem_body=""
+        }
         while IFS= read -r line || [ -n "$line" ]; do
+          if [ "$in_pem" = "1" ]; then
+            # Accumulate the PEM body verbatim (preserve internal newlines).
+            pem_body="${pem_body}"$'\n'"${line}"
+            case "$line" in *-----END*) flush_pem ;; esac
+            continue
+          fi
           # Trim leading/trailing whitespace.
           line="${line#"${line%%[![:space:]]*}"}"
           line="${line%"${line##*[![:space:]]}"}"
           [ -z "$line" ] && continue
           case "$line" in \#*) continue ;; esac
-          # Fail fast on raw PEM material. The generated file is a line-based .env
-          # (KEY=VALUE per line), so a multi-line PEM would be split across many
-          # lines: the proxies' parser would read only the first line as the
-          # value, producing an invalid GITHUB_APP_PRIVATE_KEY that makes
-          # git-proxy/mcp-proxy log.Fatalf and exit 1 ("dependency failed to
-          # start: container yana-mcp-proxy exited (1)"). This guard runs BEFORE
-          # the KEY=VALUE check so BOTH the "KEY=-----BEGIN..." first line and any
-          # bare continuation / -----END line abort the step with a clear error.
+          # Detect the start of a raw multi-line PEM ('KEY=-----BEGIN ...').
+          # Base64-encoded PEM values never contain '-----BEGIN' (base64 has no
+          # hyphens), so this path only ever fires on genuine raw PEM material.
           case "$line" in
             *-----BEGIN*)
-              echo "::error::configuration-envs contains a raw PEM (a line with '-----BEGIN'); the line-based .env cannot carry a multi-line value. base64-encode it (base64 -w0 key.pem) and pass the single-line value."
-              exit 1
+              if ! printf '%s' "$line" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=-----BEGIN'; then
+                echo "::error::configuration-envs contains a stray '-----BEGIN' line without a 'KEY=' prefix; the .env generator cannot recover the key name. Ensure the PEM starts with 'KEY=-----BEGIN...' on its first line."
+                exit 1
+              fi
+              pem_key="${line%%=*}"
+              pem_body="${line#*=}"
+              in_pem=1
+              # A single-line PEM ('BEGIN' and 'END' on the same input line) is
+              # legal too; flush it right away.
+              case "$pem_body" in *-----END*) flush_pem ;; esac
+              continue
               ;;
           esac
           if ! printf '%s' "$line" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*='; then
@@ -157,6 +196,10 @@ runs:
           printf '%s=%s\n' "$key" "$val" >> "$env_file"
           count=$(( count + 1 ))
         done <<< "${combined}"
+        if [ "$in_pem" = "1" ]; then
+          echo "::error::configuration-envs opened a PEM block for '${pem_key}' with '-----BEGIN' but no matching '-----END' line was found; the PEM material is incomplete."
+          exit 1
+        fi
         echo "env-file=${env_file}" >> "$GITHUB_OUTPUT"
         echo "Wrote ${count} entr(ies) to generated .env from configuration-envs"
 
