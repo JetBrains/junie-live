@@ -12,7 +12,7 @@ Lowest to highest (a higher layer wins on a per-field basis):
 
 1. **Embedded defaults** — baked into the binary (`internal/config/defaults.yaml`).
 2. **Home config** — `~/.junie-live/config.yaml` (or `<--home>/config.yaml`).
-3. **Workspace config** — `<workspace>/.junie-live.yaml`.
+3. **Workspace config** — `<workspace>/.junie-live/config.yaml`.
 4. **Explicit `--config <path>`** — applied in the order given on the command line.
 5. **Environment interpolation** — `${VAR}` expansion using `--env-file` plus
    the process environment. `<workspace>/.env` is loaded automatically when
@@ -272,7 +272,7 @@ slack:
       id: C0123456789
 ```
 
-`<workspace>/.junie-live.yaml` (workspace layer — overlays the same channel and
+`<workspace>/.junie-live/config.yaml` (workspace layer — overlays the same channel and
 turns one off, adds a repo, and disables threads without touching Slack creds):
 
 ```yaml
