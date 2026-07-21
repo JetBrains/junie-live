@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Yana CLI installer
-# Downloads the latest yana binary from GitHub Releases
-# and installs it to ~/.yana/bin/
+# CLI installer for the repository it is published from
+# Downloads the matching binary from GitHub Releases
+# and installs it to ~/.<repository>/bin/
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/JetBrains/junie-live/main/install.sh | bash
@@ -13,8 +13,8 @@
 set -euo pipefail
 
 REPO="JetBrains/junie-live"
-BINARY_NAME="yana"
-INSTALL_DIR="$HOME/.yana/bin"
+BINARY_NAME="${REPO##*/}"
+INSTALL_DIR="$HOME/.${BINARY_NAME}/bin"
 
 # --- Helpers ---
 
@@ -137,7 +137,7 @@ download() {
   # macOS: the kernel still has the previous binary's code-signature pages
   # cached for that vnode, so the new bytes fail validation
   # ("load code signature error 2" / "rejecting invalid page") and the process
-  # is SIGKILL'd ("zsh: killed yana") even though the binary is perfectly valid.
+  # is SIGKILL'd even though the binary is perfectly valid.
   # A fresh temp file + rename gives a new inode, so no stale signature is cached.
   local tmp="${dest}.download.$$"
   if command -v curl >/dev/null 2>&1; then
@@ -172,7 +172,7 @@ main() {
 
   tag=$(latest_tag)
 
-  info "Installing yana ${tag} (${os}/${arch})..."
+  info "Installing ${BINARY_NAME} ${tag} (${os}/${arch})..."
 
   asset_name="${BINARY_NAME}-${os}-${arch}"
   if [ "$os" = "windows" ]; then
@@ -219,9 +219,9 @@ main() {
 
     if [ -n "$profile" ]; then
       if ! grep -qF "$INSTALL_DIR" "$profile" 2>/dev/null; then
-        printf '\n# Yana CLI\n%s\n' "$export_line" >> "$profile"
+        printf '\n# %s CLI\n%s\n' "$BINARY_NAME" "$export_line" >> "$profile"
         info "Added ${INSTALL_DIR} to PATH in ${profile}"
-        info "Run 'source ${profile}' or open a new terminal to use yana."
+        info "Run 'source ${profile}' or open a new terminal to use ${BINARY_NAME}."
       fi
     else
       info "Add the following to your shell profile:"
@@ -230,7 +230,7 @@ main() {
   fi
 
   info ""
-  info "Done! Run 'yana --help' to get started."
+  info "Done! Run '${BINARY_NAME} --help' to get started."
 }
 
 main "$@"
