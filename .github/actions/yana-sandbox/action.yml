@@ -64,30 +64,11 @@ runs:
         YANA_VERSION: ${{ inputs.yana-version }}
       run: |
         set -euo pipefail
-        REPO="JetBrains/junie-live"
-        INSTALL_DIR="$HOME/.yana/bin"
-        if [ "${YANA_VERSION}" = "latest" ] || [ -z "${YANA_VERSION}" ]; then
-          echo "Installing latest yana CLI"
-          api="https://api.github.com/repos/${REPO}/releases/latest"
-        else
-          echo "Installing pinned yana CLI ${YANA_VERSION}"
-          api="https://api.github.com/repos/${REPO}/releases/tags/${YANA_VERSION}"
-        fi
-        os="linux"
-        case "$(uname -m)" in
-          x86_64|amd64) arch="amd64" ;;
-          arm64|aarch64) arch="arm64" ;;
-          *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
-        esac
-        asset="yana-${os}-${arch}"
-        json=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" "$api")
-        asset_url=$(echo "$json" | grep -B5 "\"name\": \"${asset}\"" | grep '"url"' | tail -1 | sed 's/.*"url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-        [ -n "$asset_url" ] || { echo "Asset ${asset} not found in ${YANA_VERSION:-latest}" >&2; exit 1; }
-        mkdir -p "$INSTALL_DIR"
+        echo "Installing yana CLI ${YANA_VERSION:-latest}"
         curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" \
-          -H "Accept: application/octet-stream" -o "${INSTALL_DIR}/yana" "$asset_url"
-        chmod +x "${INSTALL_DIR}/yana"
-        echo "${INSTALL_DIR}" >> "$GITHUB_PATH"
+          "https://raw.githubusercontent.com/JetBrains/junie-live/main/install-yana.sh" \
+          | bash -s -- "${YANA_VERSION:-latest}"
+        echo "$HOME/.yana/bin" >> "$GITHUB_PATH"
 
     - name: Log in to GHCR
       shell: bash

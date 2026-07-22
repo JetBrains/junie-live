@@ -33,9 +33,9 @@ the sandbox for a bounded, self-restarting window.
 
 ## How it works
 
-1. **Install CLI** — installs the `yana` CLI from the latest release, or from the
-   pinned release selected by `yana-version`, using the job's `github.token` to
-   fetch the release asset.
+1. **Install CLI** — runs the production `install-yana.sh` from
+   `JetBrains/junie-live` for the latest release, or for the release selected by
+   `yana-version`, using the job's `github.token` for the request.
 2. **GHCR login** — logs in to `ghcr.io` with `ghcr-token` so the private
    `ghcr.io/jetbrains/yana/*` images can be pulled.
 3. **Generate `.env`** — writes the `configuration-envs` `KEY=VALUE` lines

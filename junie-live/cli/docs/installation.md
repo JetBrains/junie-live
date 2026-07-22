@@ -37,12 +37,12 @@ Production releases provide Linux, macOS, and Windows binaries for amd64 and
 arm64. Install the latest binary into `~/.junie-live/bin` with:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/JetBrains/junie-live/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/JetBrains/junie-live/main/install-junie-live.sh | bash
 ```
 
-Set `GITHUB_TOKEN` and send it in the request authorization header while the
-repository is private. The same release tag and target matrix are used for the
-Yana and Junie Live CLIs.
+The same release tag and target matrix are used for the Yana and Junie Live
+CLIs, but each has its own explicit installer. To install Yana instead, use
+`install-yana.sh` from the same repository.
 
 ## Release artifacts
 

@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
-# CLI installer for the repository it is published from
-# Downloads the matching binary from GitHub Releases
-# and installs it to ~/.<repository>/bin/
+# Installer for the Yana CLI published by JetBrains/junie-live.
+# Downloads the matching binary from GitHub Releases and installs it to
+# ~/.yana/bin/.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/JetBrains/junie-live/main/install.sh | bash
-#
-# For private repositories, set GITHUB_TOKEN first:
-#   export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
-#   curl -fsSL -H "Authorization: token $GITHUB_TOKEN" https://raw.githubusercontent.com/JetBrains/junie-live/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/JetBrains/junie-live/main/install-yana.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/JetBrains/junie-live/main/install-yana.sh | bash -s -- v0.123
 
 set -euo pipefail
 
 REPO="JetBrains/junie-live"
-BINARY_NAME="${REPO##*/}"
+BINARY_NAME="yana"
 INSTALL_DIR="$HOME/.${BINARY_NAME}/bin"
+RELEASE_VERSION="${1:-${YANA_VERSION:-latest}}"
 
 # --- Helpers ---
 
@@ -170,7 +168,12 @@ main() {
   arch=$(detect_arch)
   info "Detected platform: ${os}/${arch}"
 
-  tag=$(latest_tag)
+  if [ "$RELEASE_VERSION" = "latest" ] || [ -z "$RELEASE_VERSION" ]; then
+    tag=$(latest_tag)
+  else
+    tag="$RELEASE_VERSION"
+    info "Selected release: ${tag}"
+  fi
 
   info "Installing ${BINARY_NAME} ${tag} (${os}/${arch})..."
 
