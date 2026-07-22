@@ -62,7 +62,7 @@ Secret-bearing fields: `git.repositories[].token`,
 | Field | Type | Meaning |
 |---|---|---|
 | `schema-version` | int | Must equal `1`. Any other value is fatal. |
-| `workspace` | path | Primary repository checkout; resolved to an absolute, existing directory. Defaults to the current directory / `--workspace`; launched Hermes processes receive it as both their working directory and `PWD`, including Slack sessions. |
+| `workspace` | path | Primary repository checkout; resolved to an absolute, existing directory. Defaults to the current directory and can be overridden with `--workspace`; the CLI writes it to Hermes' `terminal.cwd` so gateway and Slack sessions use it as their working directory. |
 | `home` | path | Private `~/.junie-live` root. Defaults to `~/.junie-live` / `--home`. |
 | `profile` | string | Hermes profile name. Default `junie-live`. |
 | `responsibility_area` | string | Free text; exported as `JUNIE_LIVE_RESPONSIBILITY_AREA` and gates the first-run initialization marker. |
@@ -157,21 +157,25 @@ Enabled features require a complete identity (`backend_url` + `project_id`) and
 | Field | Meaning |
 |---|---|
 | `backend_url`, `project_id`, `token` | Backend identity/auth. |
-| `state.enabled` | Restore and checkpoint mutable Hermes state only. Junie is always freshly seeded. |
+| `state.enabled` | Restore and checkpoint full Hermes and Junie state. |
 | `state.checkpoint_interval_seconds` | Periodic snapshot cadence in seconds; `0` means final capture only. |
 | `state.fail_if_not_restored` | Make lookup/download/import failure fatal; a backend `404` remains a valid first run. |
 | `reporting.enabled` | Live reporting. |
 | `commands.enabled`, `commands.poll_interval_seconds` | Inbound command polling. |
 
-When state is operational, the CLI restores the latest snapshot into the new
-run's `.hermes` before reconciling generated assets. It then remains in the
-foreground, serializes periodic captures, and attempts a bounded final capture
-before stopping Hermes. State transfer requires `backend.token`; the token and
-signed URLs are never written to the run. Missing tokens and backend failures
-are best-effort unless `state.fail_if_not_restored` is enabled.
+When state is operational, the CLI restores the latest full Hermes backup and
+the saved `.junie` home into the new run before reconciling generated assets.
+Hermes checkpoints use its native WAL-safe `hermes backup -o` command. After
+the gateway starts, the CLI registers a backend running instance and uses the
+returned instance ID for every periodic and shutdown snapshot, matching Yana's
+snapshot provenance contract. The CLI remains in the foreground, serializes
+periodic captures, and attempts a bounded final capture before stopping Hermes.
+State transfer requires `backend.token`; the token and signed URLs are never
+written to the run. Missing tokens and backend failures are best-effort unless
+`state.fail_if_not_restored` is enabled.
 
 Every launch has independent homes under `~/.junie-live/runs/<run-id>/`:
-`.hermes` for Hermes, `.junie` for fresh Junie state, `logs` for logs, and
+`.hermes` for Hermes, `.junie` for restorable Junie state, `logs` for logs, and
 `junie-live` for other launch metadata. Hermes gateway stdout and stderr are
 shown by the foreground CLI so Socket Mode connection failures are visible.
 No `~/.junie-live/state/` tree or profile compatibility link is created.

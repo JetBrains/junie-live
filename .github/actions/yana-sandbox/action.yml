@@ -67,27 +67,26 @@ runs:
         REPO="JetBrains/junie-live"
         INSTALL_DIR="$HOME/.yana/bin"
         if [ "${YANA_VERSION}" = "latest" ] || [ -z "${YANA_VERSION}" ]; then
-          echo "Installing latest yana CLI via install.sh"
-          curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" \
-            "https://raw.githubusercontent.com/${REPO}/main/install.sh" | bash
+          echo "Installing latest yana CLI"
+          api="https://api.github.com/repos/${REPO}/releases/latest"
         else
           echo "Installing pinned yana CLI ${YANA_VERSION}"
-          os="linux"
-          case "$(uname -m)" in
-            x86_64|amd64) arch="amd64" ;;
-            arm64|aarch64) arch="arm64" ;;
-            *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
-          esac
-          asset="yana-${os}-${arch}"
           api="https://api.github.com/repos/${REPO}/releases/tags/${YANA_VERSION}"
-          json=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" "$api")
-          asset_url=$(echo "$json" | grep -B5 "\"name\": \"${asset}\"" | grep '"url"' | tail -1 | sed 's/.*"url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-          [ -n "$asset_url" ] || { echo "Asset ${asset} not found in ${YANA_VERSION}" >&2; exit 1; }
-          mkdir -p "$INSTALL_DIR"
-          curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" \
-            -H "Accept: application/octet-stream" -o "${INSTALL_DIR}/yana" "$asset_url"
-          chmod +x "${INSTALL_DIR}/yana"
         fi
+        os="linux"
+        case "$(uname -m)" in
+          x86_64|amd64) arch="amd64" ;;
+          arm64|aarch64) arch="arm64" ;;
+          *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+        esac
+        asset="yana-${os}-${arch}"
+        json=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" "$api")
+        asset_url=$(echo "$json" | grep -B5 "\"name\": \"${asset}\"" | grep '"url"' | tail -1 | sed 's/.*"url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+        [ -n "$asset_url" ] || { echo "Asset ${asset} not found in ${YANA_VERSION:-latest}" >&2; exit 1; }
+        mkdir -p "$INSTALL_DIR"
+        curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" \
+          -H "Accept: application/octet-stream" -o "${INSTALL_DIR}/yana" "$asset_url"
+        chmod +x "${INSTALL_DIR}/yana"
         echo "${INSTALL_DIR}" >> "$GITHUB_PATH"
 
     - name: Log in to GHCR

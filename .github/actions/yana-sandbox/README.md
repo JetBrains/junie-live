@@ -33,9 +33,9 @@ the sandbox for a bounded, self-restarting window.
 
 ## How it works
 
-1. **Install CLI** — installs the `yana` CLI (via the repo `install.sh`, or a
-   pinned release asset when `yana-version` is set), using the job's
-   `github.token` to fetch the release.
+1. **Install CLI** — installs the `yana` CLI from the latest release, or from the
+   pinned release selected by `yana-version`, using the job's `github.token` to
+   fetch the release asset.
 2. **GHCR login** — logs in to `ghcr.io` with `ghcr-token` so the private
    `ghcr.io/jetbrains/yana/*` images can be pulled.
 3. **Generate `.env`** — writes the `configuration-envs` `KEY=VALUE` lines
@@ -44,7 +44,8 @@ the sandbox for a bounded, self-restarting window.
    file; the agent container keeps zero credentials.
 4. **Supervised run** — `run-sandbox.sh` runs
    `yana --env-file <env> --agent <agent> yana.yaml` in the foreground under
-   `timeout -s INT <budget>`. If `yana` exits early it tears the stack down and
+   `timeout -s INT <budget>`. The supervisor fails immediately if the CLI is not
+   installed; otherwise, if `yana` exits early it tears the stack down and
    restarts until `run-duration-seconds` elapses, then does a final `down`.
 
 Continuous operation across hours comes from the **caller workflow's schedule**

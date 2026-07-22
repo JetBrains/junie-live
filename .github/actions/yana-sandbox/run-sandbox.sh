@@ -29,9 +29,15 @@ cd "$WORKDIR"
 
 log() { printf '[yana-sandbox] %s\n' "$*"; }
 
+YANA_BIN="$(command -v yana || true)"
+if [ -z "$YANA_BIN" ]; then
+  log "ERROR: yana CLI is not available on PATH; installation did not complete successfully."
+  exit 127
+fi
+
 down() {
   log "Tearing down the sandbox stack..."
-  yana --env-file "$ENV_FILE" --agent "$AGENT" yana.yaml down || \
+  "$YANA_BIN" --env-file "$ENV_FILE" --agent "$AGENT" yana.yaml down || \
     log "WARN: 'yana ... down' returned non-zero (continuing)."
 }
 
@@ -83,7 +89,7 @@ while :; do
   # 124). Backgrounded so the trap above can run while yana is alive.
   rc=0
   timeout -s INT "${remaining}s" \
-    yana --log-file "$log_file" --env-file "$ENV_FILE" --agent "$AGENT" yana.yaml &
+    "$YANA_BIN" --log-file "$log_file" --env-file "$ENV_FILE" --agent "$AGENT" yana.yaml &
   yana_pid=$!
 
   # `wait` is interrupted by a trapped signal (the trap relays it to yana); loop until
