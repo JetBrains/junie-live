@@ -12,6 +12,7 @@ set -euo pipefail
 REPO="JetBrains/junie-live"
 BINARY_NAME="junie-live"
 INSTALL_DIR="$HOME/.${BINARY_NAME}/bin"
+RUNTIME_DIR="$HOME/.${BINARY_NAME}/runtime"
 RELEASE_VERSION="${1:-${JUNIE_LIVE_VERSION:-latest}}"
 
 # --- Helpers ---
@@ -116,6 +117,28 @@ download() {
   info "  Saved to ${dest} ($(wc -c < "$dest" | tr -d ' ') bytes)"
 }
 
+provision_sandbox_runtime() {
+  local tag="$1" archive unpack_dir runtime_url
+  command -v node >/dev/null 2>&1 || error "Node.js >=20.11.0 is required for sandbox support."
+  command -v npm >/dev/null 2>&1 || error "npm is required for sandbox support."
+  node -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (major < 20 || (major === 20 && minor < 11)) process.exit(1)' \
+    || error "Node.js >=20.11.0 is required for sandbox support (found $(node --version))."
+
+  archive=$(mktemp "${TMPDIR:-/tmp}/junie-live-runtime.XXXXXX.tgz")
+  unpack_dir=$(mktemp -d "${TMPDIR:-/tmp}/junie-live-runtime.XXXXXX")
+  runtime_url=$(asset_download_url "$tag" "junie-live-runtime-lock.tgz")
+  info "Downloading pinned sandbox runtime lock..."
+  download "$runtime_url" "$archive" || error "Could not download junie-live-runtime-lock.tgz from release ${tag}."
+  tar -xzf "$archive" -C "$unpack_dir"
+  mkdir -p "$RUNTIME_DIR"
+  install -m 0600 "$unpack_dir/package.json" "$RUNTIME_DIR/package.json"
+  install -m 0600 "$unpack_dir/package-lock.json" "$RUNTIME_DIR/package-lock.json"
+  npm ci --omit=dev --ignore-scripts --no-audit --no-fund --prefix "$RUNTIME_DIR"
+  rm -f "$archive"
+  rm -rf "$unpack_dir"
+  info "Provisioned sandbox runtime at ${RUNTIME_DIR}"
+}
+
 # --- Main ---
 
 main() {
@@ -152,6 +175,10 @@ main() {
   download "$download_url" "$dest" || error "Download failed. Check that a release exists at https://github.com/${REPO}/releases"
 
   chmod +x "$dest"
+
+  if [ "$os" != "windows" ]; then
+    provision_sandbox_runtime "$tag"
+  fi
 
   info "Installed to ${dest}"
 
