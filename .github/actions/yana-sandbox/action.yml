@@ -60,13 +60,11 @@ runs:
     - name: Install yana CLI
       shell: bash
       env:
-        GITHUB_TOKEN: ${{ github.token }}
         YANA_VERSION: ${{ inputs.yana-version }}
       run: |
         set -euo pipefail
         echo "Installing yana CLI ${YANA_VERSION:-latest}"
-        curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" \
-          "https://raw.githubusercontent.com/JetBrains/junie-live/main/install-yana.sh" \
+        curl -fsSL "https://raw.githubusercontent.com/JetBrains/junie-live/main/install-yana.sh" \
           | bash -s -- "${YANA_VERSION:-latest}"
         echo "$HOME/.yana/bin" >> "$GITHUB_PATH"
 

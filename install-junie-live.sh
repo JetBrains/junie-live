@@ -36,22 +36,13 @@ detect_arch() {
   esac
 }
 
-# Build auth header for curl/wget when GITHUB_TOKEN is set
-auth_header() {
-  if [ -n "${GITHUB_TOKEN:-}" ]; then
-    echo "Authorization: token ${GITHUB_TOKEN}"
-  fi
-}
-
 # Fetch JSON from a GitHub API URL
 api_get() {
   local url="$1"
   if command -v curl >/dev/null 2>&1; then
-    local h; h=$(auth_header)
-    curl -fsSL ${h:+-H "$h"} "$url"
+    curl -fsSL "$url"
   elif command -v wget >/dev/null 2>&1; then
-    local h; h=$(auth_header)
-    wget -qO- ${h:+--header="$h"} "$url"
+    wget -qO- "$url"
   else
     error "Neither curl nor wget found. Please install one of them."
   fi
@@ -65,11 +56,9 @@ latest_tag_via_redirect() {
   local url="https://github.com/${REPO}/releases/latest"
   local effective="" tag=""
   if command -v curl >/dev/null 2>&1; then
-    local h; h=$(auth_header)
-    effective=$(curl -fsSLI -o /dev/null -w '%{url_effective}' ${h:+-H "$h"} "$url" 2>/dev/null) || return 1
+    effective=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$url" 2>/dev/null) || return 1
   elif command -v wget >/dev/null 2>&1; then
-    local h; h=$(auth_header)
-    effective=$(wget -S --max-redirect=10 -O /dev/null ${h:+--header="$h"} "$url" 2>&1 \
+    effective=$(wget -S --max-redirect=10 -O /dev/null "$url" 2>&1 \
       | grep -i '^[[:space:]]*Location:' | tail -1 | sed 's/.*Location:[[:space:]]*//' | tr -d '\r') || return 1
   else
     return 1
@@ -87,8 +76,7 @@ latest_tag_via_redirect() {
 latest_tag() {
   info "Fetching latest release for ${REPO}..."
   local tag
-  # Prefer the API-free redirect (no rate limit). Fall back to the API
-  # (needed for private repos, where the web redirect requires a session).
+  # Prefer the API-free redirect (no rate limit). Fall back to the public API.
   tag=$(latest_tag_via_redirect) || tag=""
   if [ -z "$tag" ]; then
     local url="https://api.github.com/repos/${REPO}/releases/latest"
@@ -101,30 +89,10 @@ latest_tag() {
   echo "$tag"
 }
 
-# Find the API download URL for a release asset by name
-# For private repos, assets must be downloaded via the API with Accept: application/octet-stream
+# Build the public download URL for a release asset by name
 asset_download_url() {
   local tag="$1" asset_name="$2"
-  # Public repos: download directly from the release download URL — no
-  # api.github.com call, so this is not subject to the unauthenticated
-  # rate limit (HTTP 403). Only consult the API for private repos, where
-  # the asset must be fetched via its API url with Accept: octet-stream.
-  if [ -z "${GITHUB_TOKEN:-}" ]; then
-    echo "https://github.com/${REPO}/releases/download/${tag}/${asset_name}"
-    return 0
-  fi
-  local url="https://api.github.com/repos/${REPO}/releases/tags/${tag}"
-  info "Fetching release assets for ${tag}..."
-  local json asset_url
-  json=$(api_get "$url") || error "Could not fetch release info for ${tag}"
-  # Extract the asset's api url (browser_download_url won't work for private repos)
-  asset_url=$(echo "$json" | grep -B5 "\"name\": \"${asset_name}\"" | grep '"url"' | tail -1 | sed 's/.*"url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-  if [ -n "$asset_url" ]; then
-    echo "$asset_url"
-  else
-    # Fallback to browser download URL (works for public repos)
-    echo "https://github.com/${REPO}/releases/download/${tag}/${asset_name}"
-  fi
+  echo "https://github.com/${REPO}/releases/download/${tag}/${asset_name}"
 }
 
 download() {
@@ -139,20 +107,9 @@ download() {
   # A fresh temp file + rename gives a new inode, so no stale signature is cached.
   local tmp="${dest}.download.$$"
   if command -v curl >/dev/null 2>&1; then
-    local h; h=$(auth_header)
-    # API asset URLs require Accept header to get the binary instead of JSON metadata
-    if echo "$url" | grep -q 'api.github.com.*assets'; then
-      curl -fsSL ${h:+-H "$h"} -H "Accept: application/octet-stream" -o "$tmp" "$url"
-    else
-      curl -fsSL ${h:+-H "$h"} -o "$tmp" "$url"
-    fi
+    curl -fsSL -o "$tmp" "$url"
   elif command -v wget >/dev/null 2>&1; then
-    local h; h=$(auth_header)
-    if echo "$url" | grep -q 'api.github.com.*assets'; then
-      wget -qO "$tmp" ${h:+--header="$h"} --header="Accept: application/octet-stream" "$url"
-    else
-      wget -qO "$tmp" ${h:+--header="$h"} "$url"
-    fi
+    wget -qO "$tmp" "$url"
   fi
   chmod +x "$tmp" 2>/dev/null || true
   mv -f "$tmp" "$dest"
