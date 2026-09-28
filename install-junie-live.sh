@@ -5,7 +5,11 @@
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/JetBrains/junie-live/main/install-junie-live.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/JetBrains/junie-live/main/install-junie-live.sh | bash -s -- v0.123
+#
+# To install a PINNED release, take this script from that release's own TAG
+# instead of main. The installer and the assets a release publishes are one
+# pair, and main only knows the current asset layout:
+#   curl -fsSL https://raw.githubusercontent.com/JetBrains/junie-live/v0.123/install-junie-live.sh | bash -s -- v0.123
 
 set -euo pipefail
 
